@@ -82,9 +82,6 @@ public class MSQueue<E> extends MSQueueConsumerRPad<E> implements ConcurrentQueu
         producerNode = consumerNode = newNode(null);
     }
 
-    /*
-    * Progress Condition: Lock free
-    * */
     @Override
     public boolean enqueue(E e) {
         Node<E> newNode = newNode(e);
@@ -99,8 +96,7 @@ public class MSQueue<E> extends MSQueueConsumerRPad<E> implements ConcurrentQueu
                 }
 
             } else {
-                //volatile read isn't necessary here but it can prevent cache coherence
-                // (i.e. a thread from invalidating a cache line from shared to exclusive, forcing other threads to do a round trip to main memory)
+                //volatile read isn't necessary here
                 if (p == producerNode) PRODUCER_NODE.compareAndSet(this, p, next); //help cas producer node to next
             }
         }
@@ -109,9 +105,6 @@ public class MSQueue<E> extends MSQueueConsumerRPad<E> implements ConcurrentQueu
     }
 
 
-    /*
-     * Progress Condition: Lock free
-     * */
     @Override
     public E dequeue() {
         for (;;) {
@@ -119,8 +112,7 @@ public class MSQueue<E> extends MSQueueConsumerRPad<E> implements ConcurrentQueu
             Node<E> next = c.next;
 
             if (next == null) return null;
-
-            if (next == c) continue;
+            else if (next == c) continue;
 
             E item = next.item;
             if (CONSUMER_NODE.compareAndSet(this, c, next)) {

@@ -70,7 +70,6 @@ class NodeTailFields<E> extends NodePad2 {
     public NodeTailFields(Xadd enq, Xadd deq, E[] items) {
         super(enq, deq);
         this.items = items;
-        this.next = next;
     }
 }
 
@@ -103,6 +102,7 @@ public class FAAArrayQueue<E> extends FAAQueueConsumerRPad<E> implements Concurr
             int index = (int) p.enq.fetchAndIncrement();
             if (index >= CAPACITY) {
                 var next = p.next;
+
                 if (next == null) {
                     Node<E> newNode = newNode(e);
                     if (NEXT.compareAndSet(p, null, newNode)) {
@@ -135,13 +135,13 @@ public class FAAArrayQueue<E> extends FAAQueueConsumerRPad<E> implements Concurr
 
         for (;;) {
             var xadd = c.deq;
-            var next = c.next;
 
             int index = (int) xadd.fetchAndIncrement();
             if (index >= CAPACITY) {
-                if (next == null) return null;
+                Node<E> next;
+                if ((next = c.next) == null) return null;
                 CONSUMER_NODE.compareAndSet(this, c, next);
-                c = next;
+                c = consumerNode;
             } else {
                 E prev = (E) ITEMS.getAndSet(c.items, index, consumed);
                 if (prev != null) return prev;

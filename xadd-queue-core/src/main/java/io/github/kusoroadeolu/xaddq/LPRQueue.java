@@ -77,6 +77,7 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
                 CRQ<E> crq = new CRQ<>(kind, e);
                 if (producerCrq.casNext(null, crq)) {
                     PRODUCER_CRQ.compareAndSet(this, producerCrq, crq);
+                    return true;
                 }
             }
         }

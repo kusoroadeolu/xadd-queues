@@ -45,7 +45,7 @@ public class ProducerConsumerBench {
 
     @State(Scope.Benchmark)
     public static class QueueState {
-        @Param({"FAAQueue", "LRPQueue", "JcTools"})
+        @Param({"FAAQueue", "LRPQueue"})
         public String queueType;
 
         @Param({"100"})
@@ -66,8 +66,8 @@ public class ProducerConsumerBench {
       static ConcurrentQueue<Object> newQueue(String type) {
             switch (type) {
                 case "JCTools": return new JCToolsAdapter<>();
-                case "FAAQueue": return new FAAArrayQueue<>(Xadd.Kind.XADD);
-                case "LRPQueue" : return new LPRQueue<>(Xadd.Kind.XADD);
+                case "FAAQueue": return new FAAArrayQueue<>(Xadd.Kind.AGG_XADD);
+                case "LRPQueue" : return new LPRQueue<>(Xadd.Kind.AGG_XADD);
                 default: throw new IllegalArgumentException("Unknown queue type: " + type);
             }
         }
@@ -131,47 +131,48 @@ public class ProducerConsumerBench {
 ╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.enqDeqPairs ─╮
 │  AdditionalWork QueueType Score  Error   Unit                       │
 │  -------------- --------- ------ ------- ------                     │
-│  100            FAAQueue  20.197 ± 0.301 ops/us                     │
-│  100            LRPQueue  20.100 ± 0.529 ops/us                     │
+│  100            FAAQueue  20.170 ± 0.370 ops/us                     │
+│  100            LRPQueue  19.666 ± 0.407 ops/us                     │
 ╰─────────────────────────────────────────────────────────────────────╯
 
 ╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.producerConsumer ─╮
 │  AdditionalWork QueueType Role          Score  Error   Unit              │
 │  -------------- --------- ------------- ------ ------- ------            │
-│  100            FAAQueue  consumer      11.223 ± 0.276 ops/us            │
-│  100            FAAQueue  producer      11.294 ± 0.335 ops/us            │
-│  100            FAAQueue  queueEmpty    0.056  ± 0.083 ops/us            │
-│  100            FAAQueue  successfulDeq 11.214 ± 0.315 ops/us            │
-│  100            FAAQueue  aggregate     22.517 ± 0.599 ops/us            │
-│  100            LRPQueue  consumer      8.688  ± 0.170 ops/us            │
-│  100            LRPQueue  producer      8.000  ± 0.310 ops/us            │
-│  100            LRPQueue  queueEmpty    0.690  ± 0.160 ops/us            │
-│  100            LRPQueue  successfulDeq 8.029  ± 0.320 ops/us            │
-│  100            LRPQueue  aggregate     16.689 ± 0.475 ops/us            │
+│  100            FAAQueue  consumer      10.946 ± 0.278 ops/us            │
+│  100            FAAQueue  producer      10.994 ± 0.258 ops/us            │
+│  100            FAAQueue  queueEmpty    0.040  ± 0.040 ops/us            │
+│  100            FAAQueue  successfulDeq 10.948 ± 0.264 ops/us            │
+│  100            FAAQueue  aggregate     21.940 ± 0.524 ops/us            │
+│  100            LRPQueue  consumer      8.316  ± 0.192 ops/us            │
+│  100            LRPQueue  producer      7.660  ± 0.372 ops/us            │
+│  100            LRPQueue  queueEmpty    0.655  ± 0.195 ops/us            │
+│  100            LRPQueue  successfulDeq 7.707  ± 0.383 ops/us            │
+│  100            LRPQueue  aggregate     15.977 ± 0.560 ops/us            │
 ╰──────────────────────────────────────────────────────────────────────────╯
+
 * */
 
 /* Aggregating Xadd
 ╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.enqDeqPairs ─╮
 │  AdditionalWork QueueType Score  Error   Unit                       │
 │  -------------- --------- ------ ------- ------                     │
-│  100            FAAQueue  17.740 ± 0.760 ops/us                     │
-│  100            LRPQueue  17.624 ± 0.404 ops/us                     │
+│  100            FAAQueue  17.568 ± 0.503 ops/us                     │
+│  100            LRPQueue  17.526 ± 0.684 ops/us                     │
 ╰─────────────────────────────────────────────────────────────────────╯
 
 ╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.producerConsumer ─╮
 │  AdditionalWork QueueType Role          Score  Error   Unit              │
 │  -------------- --------- ------------- ------ ------- ------            │
-│  100            FAAQueue  consumer      10.036 ± 0.432 ops/us            │
-│  100            FAAQueue  producer      11.037 ± 0.488 ops/us            │
-│  100            FAAQueue  queueEmpty    0.028  ± 0.070 ops/us            │
-│  100            FAAQueue  successfulDeq 10.053 ± 0.426 ops/us            │
-│  100            FAAQueue  aggregate     21.073 ± 0.638 ops/us            │
-│  100            LRPQueue  consumer      8.372  ± 0.399 ops/us            │
-│  100            LRPQueue  producer      7.813  ± 0.640 ops/us            │
-│  100            LRPQueue  queueEmpty    0.588  ± 0.256 ops/us            │
-│  100            LRPQueue  successfulDeq 7.859  ± 0.647 ops/us            │
-│  100            LRPQueue  aggregate     16.186 ± 1.032 ops/us            │
+│  100            FAAQueue  consumer      9.935  ± 0.323 ops/us            │
+│  100            FAAQueue  producer      10.428 ± 0.500 ops/us            │
+│  100            FAAQueue  queueEmpty    0.069  ± 0.196 ops/us            │
+│  100            FAAQueue  successfulDeq 9.875  ± 0.420 ops/us            │
+│  100            FAAQueue  aggregate     20.363 ± 0.773 ops/us            │
+│  100            LRPQueue  consumer      7.956  ± 0.234 ops/us            │
+│  100            LRPQueue  producer      7.265  ± 0.403 ops/us            │
+│  100            LRPQueue  queueEmpty    0.687  ± 0.194 ops/us            │
+│  100            LRPQueue  successfulDeq 7.327  ± 0.405 ops/us            │
+│  100            LRPQueue  aggregate     15.221 ± 0.631 ops/us            │
 ╰──────────────────────────────────────────────────────────────────────────╯
 * */
 

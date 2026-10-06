@@ -4,7 +4,6 @@ import io.github.kusoroadeolu.xaddq.ConcurrentQueue;
 import io.github.kusoroadeolu.xaddq.FAAArrayQueue;
 import io.github.kusoroadeolu.xaddq.LPRQueue;
 import io.github.kusoroadeolu.xaddq.Xadd;
-import org.jctools.queues.MpmcUnboundedXaddArrayQueue;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 
@@ -21,32 +20,16 @@ import static io.github.kusoroadeolu.xaddq.jmh.JvmArgs.*;
 public class ProducerConsumerBench {
 
 
-    // Single shared payload, like the C++ version reusing one UserData
     static final Object PAYLOAD = new Object();
-
-    static class JCToolsAdapter<E> implements ConcurrentQueue<E> {
-        private final MpmcUnboundedXaddArrayQueue<E> queue;
-
-        public JCToolsAdapter() {
-            this.queue = new MpmcUnboundedXaddArrayQueue<>(1024, 0);
-        }
-
-        @Override
-        public boolean enqueue(E e) {
-            return queue.offer(e);
-        }
-
-        @Override
-        public E dequeue() {
-            return queue.poll();
-        }
-    }
 
 
     @State(Scope.Benchmark)
     public static class QueueState {
         @Param({"FAAQueue", "LRPQueue"})
         public String queueType;
+
+        @Param({"Xadd", "AggregatingXadd"})
+        public String xaddType;
 
         @Param({"100"})
         public long additionalWork;
@@ -55,7 +38,7 @@ public class ProducerConsumerBench {
 
         @Setup(Level.Trial)
         public void setup() {
-            queue = newQueue(queueType);
+            queue = newQueue(queueType, xaddType);
         }
 
         @Setup(Level.Iteration)
@@ -63,11 +46,11 @@ public class ProducerConsumerBench {
             while (queue.dequeue() != null);
         }
 
-      static ConcurrentQueue<Object> newQueue(String type) {
+      static ConcurrentQueue<Object> newQueue(String type, String xaddType) {
+            Xadd.Kind k = xaddType.equalsIgnoreCase("xadd") ? Xadd.Kind.XADD : Xadd.Kind.AGG_XADD;
             switch (type) {
-                case "JCTools": return new JCToolsAdapter<>();
-                case "FAAQueue": return new FAAArrayQueue<>(Xadd.Kind.AGG_XADD);
-                case "LRPQueue" : return new LPRQueue<>(Xadd.Kind.AGG_XADD);
+                case "FAAQueue": return new FAAArrayQueue<>(k);
+                case "LRPQueue" : return new LPRQueue<>(k);
                 default: throw new IllegalArgumentException("Unknown queue type: " + type);
             }
         }
@@ -129,68 +112,36 @@ public class ProducerConsumerBench {
 
 /* Normal Xadd
 ╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.enqDeqPairs ─╮
-│  AdditionalWork QueueType Score  Error   Unit                       │
-│  -------------- --------- ------ ------- ------                     │
-│  100            FAAQueue  20.170 ± 0.370 ops/us                     │
-│  100            LRPQueue  19.666 ± 0.407 ops/us                     │
+│  AdditionalWork QueueType XaddType        Score  Error   Unit       │
+│  -------------- --------- --------------- ------ ------- ------     │
+│  100            FAAQueue  Xadd            20.184 ± 0.276 ops/us     │
+│  100            FAAQueue  AggregatingXadd 18.062 ± 0.443 ops/us     │
+│  100            LRPQueue  Xadd            19.563 ± 0.623 ops/us     │
+│  100            LRPQueue  AggregatingXadd 17.606 ± 0.667 ops/us     │
 ╰─────────────────────────────────────────────────────────────────────╯
 
-╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.producerConsumer ─╮
-│  AdditionalWork QueueType Role          Score  Error   Unit              │
-│  -------------- --------- ------------- ------ ------- ------            │
-│  100            FAAQueue  consumer      10.946 ± 0.278 ops/us            │
-│  100            FAAQueue  producer      10.994 ± 0.258 ops/us            │
-│  100            FAAQueue  queueEmpty    0.040  ± 0.040 ops/us            │
-│  100            FAAQueue  successfulDeq 10.948 ± 0.264 ops/us            │
-│  100            FAAQueue  aggregate     21.940 ± 0.524 ops/us            │
-│  100            LRPQueue  consumer      8.316  ± 0.192 ops/us            │
-│  100            LRPQueue  producer      7.660  ± 0.372 ops/us            │
-│  100            LRPQueue  queueEmpty    0.655  ± 0.195 ops/us            │
-│  100            LRPQueue  successfulDeq 7.707  ± 0.383 ops/us            │
-│  100            LRPQueue  aggregate     15.977 ± 0.560 ops/us            │
-╰──────────────────────────────────────────────────────────────────────────╯
-
-* */
-
-/* Aggregating Xadd
-╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.enqDeqPairs ─╮
-│  AdditionalWork QueueType Score  Error   Unit                       │
-│  -------------- --------- ------ ------- ------                     │
-│  100            FAAQueue  17.568 ± 0.503 ops/us                     │
-│  100            LRPQueue  17.526 ± 0.684 ops/us                     │
-╰─────────────────────────────────────────────────────────────────────╯
-
-╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.producerConsumer ─╮
-│  AdditionalWork QueueType Role          Score  Error   Unit              │
-│  -------------- --------- ------------- ------ ------- ------            │
-│  100            FAAQueue  consumer      9.935  ± 0.323 ops/us            │
-│  100            FAAQueue  producer      10.428 ± 0.500 ops/us            │
-│  100            FAAQueue  queueEmpty    0.069  ± 0.196 ops/us            │
-│  100            FAAQueue  successfulDeq 9.875  ± 0.420 ops/us            │
-│  100            FAAQueue  aggregate     20.363 ± 0.773 ops/us            │
-│  100            LRPQueue  consumer      7.956  ± 0.234 ops/us            │
-│  100            LRPQueue  producer      7.265  ± 0.403 ops/us            │
-│  100            LRPQueue  queueEmpty    0.687  ± 0.194 ops/us            │
-│  100            LRPQueue  successfulDeq 7.327  ± 0.405 ops/us            │
-│  100            LRPQueue  aggregate     15.221 ± 0.631 ops/us            │
-╰──────────────────────────────────────────────────────────────────────────╯
-* */
-
-/*
-╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.enqDeqPairs ─╮
-│  AdditionalWork QueueType Score  Error   Unit                       │
-│  -------------- --------- ------ ------- ------                     │
-│  100            JCTools   19.469 ± 1.202 ops/us                     │
-╰─────────────────────────────────────────────────────────────────────╯
-
-╭ io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.producerConsumer ─╮
-│  AdditionalWork QueueType Role          Score  Error   Unit              │
-│  -------------- --------- ------------- ------ ------- ------            │
-│  100            JCTools   consumer      11.166 ± 0.471 ops/us            │
-│  100            JCTools   producer      14.412 ± 0.643 ops/us            │
-│  100            JCTools   queueEmpty    0.000  ± 0.000 ops/us            │
-│  100            JCTools   successfulDeq 11.198 ± 0.464 ops/us            │
-│  100            JCTools   aggregate     25.578 ± 1.097 ops/us            │
-╰──────────────────────────────────────────────────────────────────────────╯
-
+╭─── io.github.kusoroadeolu.xaddq.jmh.ProducerConsumerBench.producerConsumer ────╮
+│  AdditionalWork QueueType XaddType        Role          Score  Error   Unit    │
+│  -------------- --------- --------------- ------------- ------ ------- ------  │
+│  100            FAAQueue  Xadd            consumer      10.862 ± 0.306 ops/us  │
+│  100            FAAQueue  Xadd            producer      10.889 ± 0.430 ops/us  │
+│  100            FAAQueue  Xadd            queueEmpty    0.106  ± 0.171 ops/us  │
+│  100            FAAQueue  Xadd            successfulDeq 10.795 ± 0.426 ops/us  │
+│  100            FAAQueue  Xadd            aggregate     21.751 ± 0.704 ops/us  │
+│  100            FAAQueue  AggregatingXadd consumer      10.049 ± 0.251 ops/us  │
+│  100            FAAQueue  AggregatingXadd producer      10.647 ± 0.402 ops/us  │
+│  100            FAAQueue  AggregatingXadd queueEmpty    0.057  ± 0.119 ops/us  │
+│  100            FAAQueue  AggregatingXadd successfulDeq 10.017 ± 0.291 ops/us  │
+│  100            FAAQueue  AggregatingXadd aggregate     20.695 ± 0.614 ops/us  │
+│  100            LRPQueue  Xadd            consumer      8.307  ± 0.176 ops/us  │
+│  100            LRPQueue  Xadd            producer      7.669  ± 0.264 ops/us  │
+│  100            LRPQueue  Xadd            queueEmpty    0.636  ± 0.109 ops/us  │
+│  100            LRPQueue  Xadd            successfulDeq 7.697  ± 0.263 ops/us  │
+│  100            LRPQueue  Xadd            aggregate     15.976 ± 0.437 ops/us  │
+│  100            LRPQueue  AggregatingXadd consumer      7.993  ± 0.496 ops/us  │
+│  100            LRPQueue  AggregatingXadd producer      7.225  ± 0.881 ops/us  │
+│  100            LRPQueue  AggregatingXadd queueEmpty    0.769  ± 0.386 ops/us  │
+│  100            LRPQueue  AggregatingXadd successfulDeq 7.276  ± 0.868 ops/us  │
+│  100            LRPQueue  AggregatingXadd aggregate     15.218 ± 1.375 ops/us  │
+╰────────────────────────────────────────────────────────────────────────────────╯
 * */

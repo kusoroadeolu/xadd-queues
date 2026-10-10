@@ -48,20 +48,30 @@ class CRQTailFields<E> extends CRQPad2 {
     LPRQueue.CRQ.Node[] items;
     volatile LPRQueue.CRQ<E> next;
     volatile boolean closed;
+    final int capacity;
+
+    public CRQTailFields(int capacity) {
+        this.capacity = capacity;
+    }
 }
 
 class CRQPad3<E> extends CRQTailFields<E> {
     long s01,s02,s03,s04,s05,s06,s07,s08,s09,s10,s11,s12,s13,s14,s15;
+
+    public CRQPad3(int capacity) {
+        super(capacity);
+    }
 }
 
 public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<E>{
 
 
     final Xadd.Kind kind;
+    static final int CAPACITY = 1024;
 
     public LPRQueue(Xadd.Kind kind) {
         this.kind = kind;
-        producerCrq = consumerCrq = new CRQ<>(kind);
+        producerCrq = consumerCrq = new CRQ<>(CAPACITY, kind);
     }
 
     @Override
@@ -74,7 +84,7 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
             else if ((next = producerCrq.next) != null) {
                 PRODUCER_CRQ.compareAndSet(this, producerCrq, next);
             } else {
-                CRQ<E> crq = new CRQ<>(kind, e);
+                CRQ<E> crq = new CRQ<>(CAPACITY, kind, e);
                 if (producerCrq.casNext(null, crq)) {
                     PRODUCER_CRQ.compareAndSet(this, producerCrq, crq);
                     return true;
@@ -88,45 +98,44 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
         for (;;) {
             CRQ<E> consumerCrq = this.consumerCrq;
             E res = consumerCrq.dequeue();
+            CRQ<E> next;
             if (res != null) return res;
-            if (consumerCrq.next == null) return null;
+            if ((next = consumerCrq.next) == null) return null;
             res = consumerCrq.dequeue();
             if (res != null) return res;
-            CONSUMER_CRQ.compareAndSet(this, consumerCrq, consumerCrq.next);
+            CONSUMER_CRQ.compareAndSet(this, consumerCrq, next);
         }
     }
 
-    static final int CAPACITY = 1024;
-    static final int MASK = CAPACITY - 1;
-
-
     public static class CRQ<E> extends CRQPad3<E> implements ConcurrentQueue<E> {
 
-        public CRQ(Xadd.Kind kind) {
-            this.items = new Node[CAPACITY];
+        public CRQ(int capacity, Xadd.Kind kind) {
+            super(capacity);
+            this.items = new Node[capacity];
             this.producerXadd = Xadd.ofKind(kind);
             this.consumerXadd = Xadd.ofKind(kind);
-            producerXadd.compareAndSet(0, CAPACITY);
-            consumerXadd.compareAndSet(0, CAPACITY);
-            for (int i = 0; i < CAPACITY; ++i) {
+            producerXadd.compareAndSet(0, capacity);
+            consumerXadd.compareAndSet(0, capacity);
+            for (int i = 0; i < capacity; ++i) {
                 items[i] = new Node();
             }
         }
 
-        public CRQ(Xadd.Kind kind, E e) {
-            this.items = new Node[CAPACITY];
+        public CRQ(int capacity, Xadd.Kind kind, E e) {
+            super(capacity);
+            this.items = new Node[capacity];
             this.producerXadd = Xadd.ofKind(kind);
             this.consumerXadd = Xadd.ofKind(kind);
 
-            consumerXadd.compareAndSet(0, CAPACITY);
+            consumerXadd.compareAndSet(0, capacity);
 
-            for (int i = 0; i < CAPACITY; ++i) {
+            for (int i = 0; i < capacity; ++i) {
                 items[i] = new Node();
             }
 
             items[0].item = e;
             items[0].safeAndEpoch = new SafeAndEpoch(true, 1);
-            producerXadd.compareAndSet(0, CAPACITY + 1);
+            producerXadd.compareAndSet(0, capacity + 1);
         }
 
         public boolean casNext(CRQ<E> from, CRQ<E> to) {
@@ -137,13 +146,14 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
             final Xadd producerXadd = this.producerXadd;
             final Thread token = Thread.currentThread();
             final Xadd  consumerXadd = this.consumerXadd;
+            final int capacity = this.capacity;
 
             for (;;) {
                 long producerIndex = producerXadd.fetchAndIncrement();
                 if (closed) return false;
 
-                long cycle = producerIndex / CAPACITY;
-                int index = (int) (producerIndex & MASK);
+                long cycle = producerIndex / capacity;
+                int index = (int) (producerIndex & (capacity - 1));
                 Node node = items[index];
 
                 SafeAndEpoch se = node.safeAndEpoch;
@@ -164,7 +174,7 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
                     if (ITEM.compareAndSet(node, token, e)) return true;
                 }
 
-                if (producerIndex - consumerXadd.get() >= CAPACITY) { //is the queue full or?
+                if (producerIndex - consumerXadd.get() >= capacity) { //is the queue full or?
                     if (!closed) closed = true;
                     return false;
                 }
@@ -175,12 +185,13 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
         public E dequeue() {
             final Xadd  consumerXadd = this.consumerXadd;
             final Xadd producerXadd = this.producerXadd;
+            final long capacity = this.capacity;
 
             for (;;) {
                 long consumerIndex = consumerXadd.fetchAndIncrement();
 
-                long cycle = consumerIndex / CAPACITY;
-                int index = (int) (consumerIndex & MASK);
+                long cycle = consumerIndex / capacity;
+                int index = (int) (consumerIndex & (capacity - 1));
                 Node node = items[index];
 
                 for (;;) {
@@ -234,7 +245,7 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
             volatile SafeAndEpoch safeAndEpoch;
 
             public Node() {
-                SAFE_AND_EPOCH.setRelease(this, SafeAndEpoch.DEFAULT);
+                SAFE_AND_EPOCH.set(this, SafeAndEpoch.DEFAULT);
             }
 
             //ideally we could pack the safe bit (as an int) and epoch into a 64 bit long

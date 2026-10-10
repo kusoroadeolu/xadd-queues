@@ -45,7 +45,7 @@ class CRQPad2 extends CRQConsumerField {
 }
 
 class CRQTailFields<E> extends CRQPad2 {
-    LPRQueue.CRQ.Node[] items;
+    LPRQueue.CRQ.Cell[] items;
     volatile LPRQueue.CRQ<E> next;
     volatile boolean closed;
     final int capacity;
@@ -111,26 +111,26 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
 
         public CRQ(int capacity, Xadd.Kind kind) {
             super(capacity);
-            this.items = new Node[capacity];
+            this.items = new Cell[capacity];
             this.producerXadd = Xadd.ofKind(kind);
             this.consumerXadd = Xadd.ofKind(kind);
             producerXadd.compareAndSet(0, capacity);
             consumerXadd.compareAndSet(0, capacity);
             for (int i = 0; i < capacity; ++i) {
-                items[i] = new Node();
+                items[i] = new Cell();
             }
         }
 
         public CRQ(int capacity, Xadd.Kind kind, E e) {
             super(capacity);
-            this.items = new Node[capacity];
+            this.items = new Cell[capacity];
             this.producerXadd = Xadd.ofKind(kind);
             this.consumerXadd = Xadd.ofKind(kind);
 
             consumerXadd.compareAndSet(0, capacity);
 
             for (int i = 0; i < capacity; ++i) {
-                items[i] = new Node();
+                items[i] = new Cell();
             }
 
             items[0].item = e;
@@ -154,24 +154,24 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
 
                 long cycle = producerIndex / capacity;
                 int index = (int) (producerIndex & (capacity - 1));
-                Node node = items[index];
+                Cell cell = items[index];
 
-                SafeAndEpoch se = node.safeAndEpoch;
-                Object item = node.item;
+                SafeAndEpoch se = cell.safeAndEpoch;
+                Object item = cell.item;
 
                 block: if ((item == null || isThreadToken(item))
                         && se.epoch() < cycle
                         && (se.safe() || consumerXadd.get() <= producerIndex)) {
 
-                    if (!ITEM.compareAndSet(node, item, token)) break block; //a later enqueue has claimed this slot
+                    if (!ITEM.compareAndSet(cell, item, token)) break block; //a later enqueue has claimed this slot
 
-                    if (!SAFE_AND_EPOCH.compareAndSet(node, se, new SafeAndEpoch(true, cycle))) { //a later enqueue has claimed this slot
+                    if (!SAFE_AND_EPOCH.compareAndSet(cell, se, new SafeAndEpoch(true, cycle))) { //a later enqueue has claimed this slot
                         // or a dequeue on this or a later cycle has advanced past this slot (i.e.) empty transition
-                        ITEM.compareAndSet(node, token, null);
+                        ITEM.compareAndSet(cell, token, null);
                         break block;
                     }
 
-                    if (ITEM.compareAndSet(node, token, e)) return true;
+                    if (ITEM.compareAndSet(cell, token, e)) return true; //linearization point
                 }
 
                 if (producerIndex - consumerXadd.get() >= capacity) { //is the queue full or?
@@ -192,25 +192,28 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
 
                 long cycle = consumerIndex / capacity;
                 int index = (int) (consumerIndex & (capacity - 1));
-                Node node = items[index];
+                Cell cell = items[index];
 
                 for (;;) {
-                    SafeAndEpoch se = node.safeAndEpoch;
-                    Object item = node.item;
-                    SafeAndEpoch later = node.safeAndEpoch;
+                    SafeAndEpoch se = cell.safeAndEpoch;
+                    Object item = cell.item;
+                    SafeAndEpoch later = cell.safeAndEpoch;
 
 
                     if (se != later) continue;
 
                     long epoch = se.epoch();
-                    if (epoch == cycle && item != null && !isThreadToken(item)) {
-                        node.item = null;
+                    if (epoch == cycle && item != null && !isThreadToken(item)) { //item is present and we're on the right epoch
+                        cell.item = null;
                         return (E) item;
-                    } else if (epoch <= cycle && (item == null || isThreadToken(item))) {
-                        if (isThreadToken(item) && !ITEM.compareAndSet(node, item, null)) continue;
-                        if (SAFE_AND_EPOCH.compareAndSet(node, se, new SafeAndEpoch(se.safe(), cycle))) break;
-                    } else if (epoch < cycle && !isThreadToken(item)) {
-                        if(SAFE_AND_EPOCH.compareAndSet(node, se, new SafeAndEpoch(false, se.epoch()))) break;
+                    } else if (epoch <= cycle && (item == null || isThreadToken(item))) { //either no enqueue (on this epoch) has been made
+                        //on this slot, or we have a lagging enqueuer
+                        if (isThreadToken(item) && !ITEM.compareAndSet(cell, item, null)) continue; //if we have a lagging enqueuer , try to unlock this slot
+                        //and move into an empty transition
+                        if (SAFE_AND_EPOCH.compareAndSet(cell, se, new SafeAndEpoch(se.safe(), cycle))) break;
+                    } else if (epoch < cycle && !isThreadToken(item)) { //we have a lagging dequeuer , move this cell to an unsafe transition, so enqueuers
+                        //don't overwrite the value here
+                        if(SAFE_AND_EPOCH.compareAndSet(cell, se, new SafeAndEpoch(false, se.epoch()))) break;
                     } else break;
 
                 }
@@ -240,11 +243,11 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
             return o instanceof Thread;
         }
 
-        static class Node {
+        static class Cell {
             volatile Object item;
             volatile SafeAndEpoch safeAndEpoch;
 
-            public Node() {
+            public Cell() {
                 SAFE_AND_EPOCH.set(this, SafeAndEpoch.DEFAULT);
             }
 
@@ -263,8 +266,8 @@ public class LPRQueue<E> extends LPRQProducerRPad<E> implements ConcurrentQueue<
         static {
             var l = MethodHandles.lookup();
             try {
-                ITEM = l.findVarHandle(Node.class, "item", Object.class);
-                SAFE_AND_EPOCH = l.findVarHandle(Node.class, "safeAndEpoch", SafeAndEpoch.class);
+                ITEM = l.findVarHandle(Cell.class, "item", Object.class);
+                SAFE_AND_EPOCH = l.findVarHandle(Cell.class, "safeAndEpoch", SafeAndEpoch.class);
                 NEXT = l.findVarHandle(CRQTailFields.class, "next", CRQ.class);
             } catch (Exception e) {
                 throw new RuntimeException(e);
